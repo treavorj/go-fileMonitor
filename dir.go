@@ -187,7 +187,7 @@ func (d *LocalDir) processFiles(fileInfo fs.DirEntry, dir string) (err error) {
 	}
 
 	for _, copier := range d.Copiers {
-		err = copier.Copy(inFile)
+		err = copier.Copy(inFile, dir, d.MonitorFolder)
 		if err != nil {
 			return fmt.Errorf("error copying file: %w", err)
 		}

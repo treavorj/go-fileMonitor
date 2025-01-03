@@ -53,65 +53,11 @@ func (c *CopierLocal) Copy(inFile *os.File, dir, monitorDir string) error {
 		return fmt.Errorf("failed to close outFile: %w", err)
 	}
 
+	// Ignore errors as they are not critical
 	creationTime, err := getCreationTime(inFile.Name())
-	if err != nil {
-		fileLog.Warn().Err(err).Str("inFilePath", inFilePath).Msg("unable to get file creation time")
-	} else {
-		err = setCreationTime(outFile.Name(), creationTime)
-		if err != nil {
-			fileLog.Warn().Err(err).Str("filepath", outFile.Name()).Msg("failed to set creation time")
-		}
+	if err == nil {
+		setCreationTime(outFile.Name(), creationTime)
 	}
 
+	return nil
 }
-
-// outFile, _, err := createLocalDir(fileName, dir, d.MonitorFolder, d.DestinationPath)
-// if err != nil {
-// 	fileLog.Warn().Err(err).Msg("error creating outFile")
-// 	return err
-// }
-// fileLog = d.log.With().Str("outFileName", outFile.Name()).Logger()
-// _, err = io.Copy(outFile, inFile)
-// if err != nil {
-// 	msg := "failed to copy file"
-// 	fileLog.Error().Err(err).Msg(msg)
-// 	return fmt.Errorf("%s:%w", msg, err)
-// }
-
-// err = outFile.Close()
-// if err != nil {
-// 	msg := "failed to close outFile"
-// 	fileLog.Error().Err(err).Msg(msg)
-// 	return fmt.Errorf("%s:%w", msg, err)
-// }
-// creationTime, err := getCreationTime(inFilePath)
-// if err != nil {
-// 	fileLog.Warn().Err(err).Str("inFilePath", inFilePath).Msg("unable to get file creation time")
-// } else {
-// 	err = setCreationTime(outFile.Name(), creationTime)
-// 	if err != nil {
-// 		fileLog.Warn().Err(err).Str("filepath", outFile.Name()).Msg("failed to set creation time")
-// 	}
-// }
-
-// func createLocalDir(fileName, dir, monitorDir, destination string) (outFile *os.File, outDir string, err error) {
-// 	if string(monitorDir[0]) == "." {
-// 		outDir = dir[len(monitorDir)-2:]
-// 	} else {
-// 		outDir = dir[len(monitorDir):]
-// 	}
-
-// 	outDir = filepath.Join(destination, outDir)
-// 	err = os.MkdirAll(outDir, os.ModePerm)
-// 	if err != nil {
-// 		return nil, "", fmt.Errorf("unable to create directory: %w", err)
-// 	}
-
-// 	outFile, err = os.Create(filepath.Join(outDir, fileName))
-// 	if err != nil {
-// 		outFile.Close()
-// 		return nil, "", fmt.Errorf("error creating file: %w", err)
-// 	}
-
-// 	return outFile, outDir, nil
-// }
