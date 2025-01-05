@@ -84,7 +84,8 @@ func TestProcessCsv(t *testing.T) {
 
 	topic := "mc_test_" + uuid.New().String()
 	parentFolder := t.TempDir()
-	folder := filepath.Join(parentFolder, "processCsv")
+	const folderName = "processCsv"
+	folder := filepath.Join(parentFolder, folderName)
 	err := os.Mkdir(folder, os.ModePerm)
 	if err != nil {
 		t.Fatalf("failed to create folder: %v", err)
@@ -163,14 +164,20 @@ Test3,3,3.3
 		{Expression: `.*not_a_test.*`, Exclude: true},
 	}
 
-	_, err = fileMonitor.NewDir("testDir", parentFolder, topic, time.Millisecond*100, &Processor{Type: ProcessorTypeCsv, Executor: csvConfig}, false, matchGroups)
+	dir, err := fileMonitor.NewDir("testDir", parentFolder, topic, time.Millisecond*100, &Processor{Type: ProcessorTypeCsv, Executor: csvConfig}, false, matchGroups)
 	if err != nil {
 		t.Fatalf("error creating new dir: %v", err)
 	}
 
+	newTempFolder := t.TempDir()
+	dir.Copiers = append(dir.Copiers, &CopierLocal{
+		Destination: newTempFolder,
+	})
+
 	// load file
-	fileName := filepath.Join(folder, "testFile.csv")
-	err = os.WriteFile(fileName, []byte(csvFile), os.ModeTemporary)
+	const fileName = "testFile.csv"
+	testFilepath := filepath.Join(folder, fileName)
+	err = os.WriteFile(testFilepath, []byte(csvFile), os.ModeTemporary)
 	if err != nil {
 		t.Fatalf("failed to write file: %v", err)
 	}
@@ -182,9 +189,121 @@ Test3,3,3.3
 	}
 
 	time.Sleep(time.Millisecond * 400)
-	_, err = os.Stat(fileName)
+	_, err = os.Stat(testFilepath)
 	if !os.IsNotExist(err) {
 		t.Errorf("file should not exist but does")
+	}
+
+	_, err = os.Stat(filepath.Join(newTempFolder, folderName, fileName))
+	if err != nil {
+		t.Errorf("file should exist")
+	}
+
+	_, err = os.Stat(fileNameExist)
+	if err != nil {
+		t.Errorf("file should exist and no error should occur: %v", err)
+	}
+}
+
+func TestProcessFail(t *testing.T) {
+	t.Parallel()
+
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnixMs
+	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
+	logger := log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339Nano}).With().Caller().Logger()
+
+	topic := "mc_test_" + uuid.New().String()
+	parentFolder := t.TempDir()
+	const folderName = "processCsv"
+	folder := filepath.Join(parentFolder, folderName)
+	err := os.Mkdir(folder, os.ModePerm)
+	if err != nil {
+		t.Fatalf("failed to create folder: %v", err)
+	}
+
+	// setup csv file
+	csvFile := `CellData,CellDataSuccessful
+ConcatCell,ConcatColumn1,ConcatColumn2,ConcatColumn3
+String,Int,Float
+Test1,1,1.1
+Test2,2,2.2
+Test3,3,3.3
+`
+	currentTime := time.Now()
+	csvFile += "timestamp," + currentTime.Format(time.RFC3339)
+
+	// csv functions
+	csvConfig := &csvParse.Csv{
+		FilePathData: []csvParse.FilePathData{
+			{
+				Name:         "test",
+				CaptureRegex: `.*/(?P<fileName>\w+).csv$`,
+			},
+		},
+		CellLocations: []csvParse.CellLocation{
+			{
+				Location: csvParse.Cell{Row: 0, Column: 9999},
+				DataType: csvParse.DataTypeString,
+				NameCell: csvParse.Cell{Row: 0, Column: 0},
+			},
+		},
+	}
+
+	// setup file monitor
+	configFile, err := os.CreateTemp("", "*config.json")
+	if err != nil {
+		t.Fatalf("failed to create config file: %v", err)
+	}
+	_, err = configFile.WriteString("{}")
+	if err != nil {
+		t.Fatalf("failed to write to config file")
+	}
+
+	fileMonitor, err := Init(context.Background(), logger, configFile.Name())
+	if err != nil {
+		t.Fatalf("failed to create fileMonitor: %v", err)
+	} else if fileMonitor == nil {
+		t.Fatalf("fileMonitor is nil")
+	}
+
+	matchGroups := []MatchGroup{
+		{Expression: `.*test.*`},
+		{Expression: `.*not_a_test.*`, Exclude: true},
+	}
+
+	dir, err := fileMonitor.NewDir("testDir", parentFolder, topic, time.Millisecond*100, &Processor{Type: ProcessorTypeCsv, Executor: csvConfig}, false, matchGroups)
+	if err != nil {
+		t.Fatalf("error creating new dir: %v", err)
+	}
+
+	newTempFolder := t.TempDir()
+	dir.ErrorCopiers = append(dir.Copiers, &CopierLocal{
+		Destination: newTempFolder,
+	})
+
+	// load file
+	const fileName = "testFile.csv"
+	testFilepath := filepath.Join(folder, fileName)
+	err = os.WriteFile(testFilepath, []byte(csvFile), os.ModeTemporary)
+	if err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	fileNameExist := filepath.Join(folder, "ShouldBeThere.csv")
+	err = os.WriteFile(fileNameExist, []byte(csvFile), os.ModeTemporary)
+	if err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	time.Sleep(time.Millisecond * 400)
+	_, err = os.Stat(testFilepath)
+	if !os.IsNotExist(err) {
+		t.Errorf("file should not exist but does")
+	}
+
+	_, err = os.Stat(filepath.Join(newTempFolder, folderName, fileName))
+	if err != nil {
+		t.Errorf("file should exist")
 	}
 
 	_, err = os.Stat(fileNameExist)

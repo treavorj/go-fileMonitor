@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type Copier interface {
@@ -37,7 +38,8 @@ func (c *CopierLocal) Copy(inFile *os.File, dir, monitorDir string) error {
 		return fmt.Errorf("unable to create directory: %w", err)
 	}
 
-	outFile, err := os.Create(filepath.Join(outDir, inFile.Name()))
+	segments := strings.Split(inFile.Name(), string(os.PathSeparator))
+	outFile, err := os.Create(filepath.Join(outDir, segments[len(segments)-1]))
 	if err != nil {
 		outFile.Close()
 		return fmt.Errorf("error creating file: %w", err)
@@ -60,4 +62,8 @@ func (c *CopierLocal) Copy(inFile *os.File, dir, monitorDir string) error {
 	}
 
 	return nil
+}
+
+func (c *CopierLocal) Type() CopierType {
+	return CopierTypeLocal
 }

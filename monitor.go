@@ -21,12 +21,12 @@ const (
 )
 
 type FileMonitor struct {
-	Dirs       map[string]*LocalDir
+	Dirs       map[string]*Dir
 	MaxJobs    uint // maximum number of jobs that can be buffered without waiting
 	NumWorkers uint // number of workers processing files
 
 	workerWg    sync.WaitGroup
-	workerTasks chan func() (err error)
+	workerTasks chan func(worker uint)
 
 	configLock sync.Mutex
 	configPath string
@@ -64,10 +64,10 @@ func (f *FileMonitor) startWorkers() {
 	f.logger.Info().Uint("NumWorkers", f.NumWorkers).Uint("MaxJobs", f.MaxJobs).Msg("starting workers")
 
 	if f.workerTasks == nil {
-		f.workerTasks = make(chan func() (err error), f.MaxJobs)
+		f.workerTasks = make(chan func(worker uint), f.MaxJobs)
 	} else {
 		if task, ok := <-f.workerTasks; !ok {
-			f.workerTasks = make(chan func() (err error), f.MaxJobs)
+			f.workerTasks = make(chan func(worker uint), f.MaxJobs)
 		} else {
 			f.workerTasks <- task
 		}
@@ -75,7 +75,7 @@ func (f *FileMonitor) startWorkers() {
 
 	f.workerWg.Add(int(f.NumWorkers))
 	for i := uint(0); i < f.NumWorkers; i++ {
-		go f.worker()
+		go f.worker(i)
 	}
 
 	f.logger.Info().Msg("started all workers")
@@ -86,7 +86,7 @@ func (f *FileMonitor) startWorkers() {
 	}()
 }
 
-func (f *FileMonitor) worker() {
+func (f *FileMonitor) worker(worker uint) {
 	defer f.workerWg.Done()
 
 	for {
@@ -95,12 +95,7 @@ func (f *FileMonitor) worker() {
 			if !ok {
 				f.logger.Warn().Msg("worker closed due to closed channel. Should close with context")
 			}
-			err := task()
-			if err != nil {
-				f.logger.Warn().Err(err).Msg("error processing task")
-				continue
-			}
-			f.logger.Trace().Msg("successfully published result")
+			task(worker)
 		case <-f.ctx.Done():
 			f.logger.Info().Msg("closing workers with context")
 			return
@@ -131,7 +126,7 @@ func (f *FileMonitor) Update() error {
 
 func (f *FileMonitor) Start() error {
 	if f.Dirs == nil {
-		f.Dirs = make(map[string]*LocalDir)
+		f.Dirs = make(map[string]*Dir)
 	}
 	f.startWorkers()
 
@@ -196,7 +191,7 @@ func Init(parentCtx context.Context, logger zerolog.Logger, configPath string) (
 	return &Monitors, nil
 }
 
-func (f *FileMonitor) AddDir(dir *LocalDir) error {
+func (f *FileMonitor) AddDir(dir *Dir) error {
 	dir.parent = f
 
 	if f.Connected() {
@@ -210,7 +205,7 @@ func (f *FileMonitor) AddDir(dir *LocalDir) error {
 	return f.Update()
 }
 
-func (f *FileMonitor) RemoveDir(dir *LocalDir) error {
+func (f *FileMonitor) RemoveDir(dir *Dir) error {
 	if dir.Active {
 		dir.ctxCancel()
 	}
@@ -235,7 +230,10 @@ func (f *FileMonitor) GetStats() *Stats {
 	return &stats
 }
 
-func (f *FileMonitor) NewDir(name, monitorFolder, publishLocation string, monitorFreq time.Duration, processor *Processor, overwriteExistingDir bool, matchGroups []MatchGroup) (*LocalDir, error) {
+// Creates a new dir
+//
+// Likely caller will want to add Publisher, Copiers, and/or ErrorCopiers
+func (f *FileMonitor) NewDir(name, monitorFolder, publishLocation string, monitorFreq time.Duration, processor *Processor, overwriteExistingDir bool, matchGroups []MatchGroup) (*Dir, error) {
 	if !overwriteExistingDir {
 		existingDir, exists := f.Dirs[name]
 		if exists {
@@ -243,13 +241,16 @@ func (f *FileMonitor) NewDir(name, monitorFolder, publishLocation string, monito
 		}
 	}
 
-	dir := LocalDir{
+	dir := Dir{
 		Name:             name,
 		MonitorFolder:    monitorFolder,
 		MonitorFrequency: monitorFreq,
 		Active:           true,
 		Processor:        processor,
 		MatchGroups:      matchGroups,
+		Publishers:       make([]Publisher, 0),
+		Copiers:          make([]Copier, 0),
+		ErrorCopiers:     make([]Copier, 0),
 		parent:           f,
 	}
 
