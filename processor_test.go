@@ -58,7 +58,7 @@ func TestFileMonitorLoading(t *testing.T) {
 		t.Fatalf("fileMonitor1 is nil")
 	}
 
-	_, err = fileMonitor1.NewDir("testLocalDir", "testFolder", "publishLocation", time.Minute, &Processor{Type: ProcessorTypeCsv, Executor: csvConfig}, true, []MatchGroup{{Expression: "test"}})
+	_, err = fileMonitor1.NewDir(t.Name(), "testFolder", "publishLocation", time.Minute, &Processor{Type: ProcessorTypeCsv, Executor: csvConfig}, true, []MatchGroup{{Expression: "test"}})
 	if err != nil {
 		t.Errorf("error creating dir in localHost: %v", err)
 	}
@@ -149,7 +149,11 @@ Test3,3,3.3
 	}
 	_, err = configFile.WriteString("{}")
 	if err != nil {
-		t.Fatalf("failed to write to config file")
+		t.Fatalf("failed to write to config file: %v", err)
+	}
+	err = configFile.Close()
+	if err != nil {
+		t.Fatalf("error closing file: %v", err)
 	}
 
 	fileMonitor, err := Init(context.Background(), logger, configFile.Name())
@@ -164,7 +168,7 @@ Test3,3,3.3
 		{Expression: `.*not_a_test.*`, Exclude: true},
 	}
 
-	dir, err := fileMonitor.NewDir("testDir", parentFolder, topic, time.Millisecond*100, &Processor{Type: ProcessorTypeCsv, Executor: csvConfig}, false, matchGroups)
+	dir, err := fileMonitor.NewDir(t.Name(), parentFolder, topic, time.Millisecond*100, &Processor{Type: ProcessorTypeCsv, Executor: csvConfig}, false, matchGroups)
 	if err != nil {
 		t.Fatalf("error creating new dir: %v", err)
 	}
@@ -271,7 +275,7 @@ Test3,3,3.3
 		{Expression: `.*not_a_test.*`, Exclude: true},
 	}
 
-	dir, err := fileMonitor.NewDir("testDir", parentFolder, topic, time.Millisecond*100, &Processor{Type: ProcessorTypeCsv, Executor: csvConfig}, false, matchGroups)
+	dir, err := fileMonitor.NewDir(t.Name(), parentFolder, topic, time.Millisecond*100, &Processor{Type: ProcessorTypeCsv, Executor: csvConfig}, false, matchGroups)
 	if err != nil {
 		t.Fatalf("error creating new dir: %v", err)
 	}
