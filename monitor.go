@@ -13,11 +13,8 @@ import (
 	"github.com/treavorj/zerolog"
 )
 
-var Monitors FileMonitor
-
 const (
 	defaultMaxJobs uint = 100
-	defaultConfig       = "fileMonitor.json"
 )
 
 type FileMonitor struct {
@@ -141,7 +138,7 @@ func (f *FileMonitor) Start() error {
 	return nil
 }
 
-func Init(parentCtx context.Context, logger zerolog.Logger, configPath string) (*FileMonitor, error) {
+func NewFileMonitor(parentCtx context.Context, logger zerolog.Logger, configPath string) (*FileMonitor, error) {
 	if configPath == "" {
 		return nil, fmt.Errorf("configPath cannot be empty")
 	}
@@ -152,43 +149,45 @@ func Init(parentCtx context.Context, logger zerolog.Logger, configPath string) (
 		return nil, nil
 	}
 
-	Monitors.configLock.Lock()
-	defer Monitors.configLock.Unlock()
+	fileMonitor := FileMonitor{}
+
+	fileMonitor.configLock.Lock()
+	defer fileMonitor.configLock.Unlock()
 	file, err := os.Open(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("unable to open configuration file: %w", err)
 	}
 	defer file.Close()
-	Monitors.configPath = configPath
+	fileMonitor.configPath = configPath
 
 	fileData, err := io.ReadAll(file)
 	if err != nil {
 		return nil, fmt.Errorf("error reading data from file: %w", err)
 	}
 
-	err = json.Unmarshal(fileData, &Monitors)
+	err = json.Unmarshal(fileData, &fileMonitor)
 	if err != nil {
 		return nil, fmt.Errorf("unable to unmarshal fileMonitor config file: %w", err)
 	}
 
-	Monitors.logger = logger.With().Str("app", "fileMonitor").DeDup().Logger()
-	if Monitors.NumWorkers == 0 {
-		Monitors.NumWorkers = uint(max(runtime.NumCPU()/2, 1))
-	} else if Monitors.NumWorkers > uint(runtime.NumCPU()) {
-		Monitors.logger.Warn().
-			Uint("NumWorkersOld", Monitors.NumWorkers).
+	fileMonitor.logger = logger.With().Str("app", "fileMonitor").DeDup().Logger()
+	if fileMonitor.NumWorkers == 0 {
+		fileMonitor.NumWorkers = uint(max(runtime.NumCPU()/2, 1))
+	} else if fileMonitor.NumWorkers > uint(runtime.NumCPU()) {
+		fileMonitor.logger.Warn().
+			Uint("NumWorkersOld", fileMonitor.NumWorkers).
 			Int("NumWorkers", runtime.NumCPU()).
 			Msg("more monitors than cores so capping to core count")
-		Monitors.NumWorkers = uint(runtime.NumCPU())
+		fileMonitor.NumWorkers = uint(runtime.NumCPU())
 	}
-	if Monitors.MaxJobs == 0 {
-		Monitors.MaxJobs = defaultMaxJobs
+	if fileMonitor.MaxJobs == 0 {
+		fileMonitor.MaxJobs = defaultMaxJobs
 	}
-	Monitors.ctxParent = parentCtx
+	fileMonitor.ctxParent = parentCtx
 
-	Monitors.logger.Info().Msg("successfully initialized, starting up monitors")
-	Monitors.Start()
-	return &Monitors, nil
+	fileMonitor.logger.Info().Msg("successfully initialized, starting up monitors")
+	fileMonitor.Start()
+	return &fileMonitor, nil
 }
 
 func (f *FileMonitor) AddDir(dir *Dir) error {
@@ -262,4 +261,10 @@ func (f *FileMonitor) NewDir(name, monitorFolder, publishLocation string, monito
 		}
 	}
 	return &dir, f.Update()
+}
+
+func (f *FileMonitor) AddAllDirPublisher(publisher Publisher) {
+	for _, dir := range f.Dirs {
+		dir.Publishers = append(dir.Publishers, publisher)
+	}
 }

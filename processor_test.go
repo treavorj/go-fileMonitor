@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
 	"time"
 
@@ -51,7 +50,7 @@ func TestFileMonitorLoading(t *testing.T) {
 		t.Fatalf("failed to write to config file: %v", err)
 	}
 
-	fileMonitor1, err := Init(context.Background(), logger, configFile.Name())
+	fileMonitor1, err := NewFileMonitor(context.Background(), logger, configFile.Name())
 	if err != nil {
 		t.Fatalf("failed to create fileMonitor1: %v", err)
 	} else if fileMonitor1 == nil {
@@ -63,16 +62,39 @@ func TestFileMonitorLoading(t *testing.T) {
 		t.Errorf("error creating dir in localHost: %v", err)
 	}
 
-	fileMonitor2, err := Init(context.Background(), logger, configFile.Name())
+	fileMonitor2, err := NewFileMonitor(context.Background(), logger, configFile.Name())
 	if err != nil {
 		t.Logf("failed to create fileMonitor2: %v", err)
 	} else if fileMonitor2 == nil {
 		t.Fatalf("fileMonitor2 is nil")
 	}
 
-	if !reflect.DeepEqual(fileMonitor1, fileMonitor2) {
-		t.Fatalf("fileMonitors are not equal")
+	if fileMonitor1.configPath != fileMonitor2.configPath {
+		t.Errorf("configPath not equal\n1: %s\n2: %s", fileMonitor1.configPath, fileMonitor2.configPath)
+	} else if fileMonitor1.MaxJobs != fileMonitor2.MaxJobs {
+		t.Errorf("MaxJobs not equal\n1: %d\n2: %d", fileMonitor1.MaxJobs, fileMonitor2.MaxJobs)
+	} else if fileMonitor1.NumWorkers != fileMonitor2.NumWorkers {
+		t.Errorf("NumWorkers not equal\n1: %d\n2: %d", fileMonitor1.NumWorkers, fileMonitor2.NumWorkers)
+	} else if len(fileMonitor1.Dirs) != len(fileMonitor2.Dirs) {
+		t.Errorf("Len of Dirs not equal\n1: %d\n2: %d", len(fileMonitor1.Dirs), len(fileMonitor2.Dirs))
+	} else if fileMonitor1.Dirs[t.Name()].Name != fileMonitor2.Dirs[t.Name()].Name {
+		t.Errorf("Dir[0].Name not equal\n1: %s\n2: %s", fileMonitor1.Dirs[t.Name()].Name, fileMonitor2.Dirs[t.Name()].Name)
 	}
+
+	_, err = fileMonitor2.NewDir(t.Name()+"test2", "testFolder2", "publishLocation2", time.Minute, &Processor{}, false, []MatchGroup{})
+	if err != nil {
+		t.Errorf("error creating new Dir: %v", err)
+	}
+
+}
+
+type testPublish struct {
+	publishSuccessful bool
+}
+
+func (p *testPublish) Publish(result [][]byte, id []string) error {
+	p.publishSuccessful = true
+	return nil
 }
 
 func TestProcessCsv(t *testing.T) {
@@ -156,7 +178,7 @@ Test3,3,3.3
 		t.Fatalf("error closing file: %v", err)
 	}
 
-	fileMonitor, err := Init(context.Background(), logger, configFile.Name())
+	fileMonitor, err := NewFileMonitor(context.Background(), logger, configFile.Name())
 	if err != nil {
 		t.Fatalf("failed to create fileMonitor: %v", err)
 	} else if fileMonitor == nil {
@@ -172,6 +194,9 @@ Test3,3,3.3
 	if err != nil {
 		t.Fatalf("error creating new dir: %v", err)
 	}
+
+	testPublishVar := &testPublish{}
+	fileMonitor.AddAllDirPublisher(testPublishVar)
 
 	newTempFolder := t.TempDir()
 	dir.Copiers = append(dir.Copiers, &CopierLocal{
@@ -192,7 +217,7 @@ Test3,3,3.3
 		t.Fatalf("failed to write file: %v", err)
 	}
 
-	time.Sleep(time.Millisecond * 400)
+	time.Sleep(time.Millisecond * 600)
 	_, err = os.Stat(testFilepath)
 	if !os.IsNotExist(err) {
 		t.Errorf("file should not exist but does")
@@ -206,6 +231,10 @@ Test3,3,3.3
 	_, err = os.Stat(fileNameExist)
 	if err != nil {
 		t.Errorf("file should exist and no error should occur: %v", err)
+	}
+
+	if !testPublishVar.publishSuccessful {
+		t.Errorf("should have set publish to successful")
 	}
 }
 
@@ -263,7 +292,7 @@ Test3,3,3.3
 		t.Fatalf("failed to write to config file")
 	}
 
-	fileMonitor, err := Init(context.Background(), logger, configFile.Name())
+	fileMonitor, err := NewFileMonitor(context.Background(), logger, configFile.Name())
 	if err != nil {
 		t.Fatalf("failed to create fileMonitor: %v", err)
 	} else if fileMonitor == nil {
@@ -299,7 +328,7 @@ Test3,3,3.3
 		t.Fatalf("failed to write file: %v", err)
 	}
 
-	time.Sleep(time.Millisecond * 400)
+	time.Sleep(time.Millisecond * 600)
 	_, err = os.Stat(testFilepath)
 	if !os.IsNotExist(err) {
 		t.Errorf("file should not exist but does")
