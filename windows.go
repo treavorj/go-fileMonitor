@@ -3,6 +3,8 @@
 package fileMonitor
 
 import (
+	"os/exec"
+	"syscall"
 	"time"
 
 	"golang.org/x/sys/windows"
@@ -33,4 +35,21 @@ func getCreationTime(filePath string) (time.Time, error) {
 	}
 
 	return time.Unix(0, cTime.Nanoseconds()), nil
+}
+
+func MountRemoteSMB(username, password, path string) error {
+	command := exec.Command(
+		"net",
+		"use"+path,
+		"/user:"+username,
+		password,
+		"/persistent",
+		"/savecred",
+	)
+
+	command.SysProcAttr = &syscall.SysProcAttr{
+		HideWindow: true,
+	}
+
+	return command.Run()
 }
