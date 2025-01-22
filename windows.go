@@ -3,6 +3,8 @@
 package fileMonitor
 
 import (
+	"bytes"
+	"fmt"
 	"os/exec"
 	"syscall"
 	"time"
@@ -37,19 +39,25 @@ func getCreationTime(filePath string) (time.Time, error) {
 	return time.Unix(0, cTime.Nanoseconds()), nil
 }
 
-func MountRemoteSMB(username, password, path string) error {
+func MountRemoteSMB(username, password, server, shareName string) error {
 	command := exec.Command(
 		"net",
-		"use"+path,
-		"/user:"+username,
-		password,
-		"/persistent",
-		"/savecred",
+		"use", fmt.Sprintf(`\\%s\%s`, server, shareName),
+		fmt.Sprintf(`/user:"%s"`, username),
+		fmt.Sprintf(`"%s"`, password),
+		"/persistent:yes",
 	)
+
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
 
 	command.SysProcAttr = &syscall.SysProcAttr{
 		HideWindow: true,
 	}
 
-	return command.Run()
+	if err := command.Run(); err != nil {
+		return fmt.Errorf("command failed: %s, stderr: %s", err, stderr.String())
+	}
+
+	return nil
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -31,42 +32,58 @@ func getCreationTime(filePath string) (time.Time, error) {
 	return time.Unix(stat.Mtim.Unix()), nil // Used Mtim due to Ctim not being reliable
 }
 
-func MountRemoteSMB(username, password, path string) error {
-	if err := createCredentialsFile(username, password); err != nil {
+func MountRemoteSMB(username, password, server, shareName string) error {
+	credentialsFile, err := createCredentialsFile(username, password, server, shareName)
+	if err != nil {
 		return fmt.Errorf("unable to create credentials: %w", err)
 	}
 
-	if err := addFstabEntry(path); err != nil {
+	mountPoint := filepath.Join("/mnt", server, shareName)
+	if err := os.MkdirAll(mountPoint, os.ModePerm); err != nil {
+		return fmt.Errorf("failed to create mount point: %w", err)
+	}
+
+	if err := addFstabEntry(server, shareName, mountPoint, credentialsFile); err != nil {
 		return fmt.Errorf("unable to create fstab entry: %w", err)
 	}
 
 	command := exec.Command(
 		"mount",
-		"-t cifs",
-		"-o", "rw", fmt.Sprintf("username=%s,password=%s", username, password),
-		path,
+		"-t", "cifs",
+		"-o", fmt.Sprintf("credentials=%s,rw", credentialsFile),
+		fmt.Sprintf("//%s/%s", server, shareName),
+		mountPoint,
 	)
 
-	return command.Run()
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("mount failed: %s, output: %s", err, string(output))
+	}
+
+	return nil
 }
 
-func createCredentialsFile(username, password string) error {
+func createCredentialsFile(username, password, server, shareName string) (string, error) {
 	credentials := fmt.Sprintf("username=%s\npassword=%s\n", username, password)
 
-	file, err := os.OpenFile("/etc/smbcredentials", os.O_CREATE|os.O_WRONLY, 0600)
+	file, err := os.OpenFile(fmt.Sprintf("/etc/smbcredentials_%s_%s", server, shareName), os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
-		return fmt.Errorf("Failed to create /etc/smbcredentials: %w", err)
+		return "", fmt.Errorf("Failed to create /etc/smbcredentials: %w", err)
 	}
 	defer file.Close()
 
 	if _, err = file.WriteString(credentials); err != nil {
-		return fmt.Errorf("Failed to write to /etc/smbcredentials: %w", err)
+		return "", fmt.Errorf("Failed to write to /etc/smbcredentials: %w", err)
 	}
-	return nil
+	return file.Name(), nil
 }
 
-func addFstabEntry(path string) error {
-	entry := fmt.Sprintf("\n%s /mnt cifs credentials=/etc/smbcredentials 0 0\n", path)
+func addFstabEntry(server, shareName, mountPoint, credentialsFile string) error {
+	entry := fmt.Sprintf("//%s/%s %s cifs credentials=%s 0 0\n",
+		server, shareName,
+		mountPoint,
+		credentialsFile,
+	)
 
 	file, err := os.OpenFile("/etc/fstab", os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
