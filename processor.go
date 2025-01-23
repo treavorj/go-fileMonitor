@@ -1,4 +1,4 @@
-package main
+package fileMonitor
 
 import (
 	"encoding/json"
