@@ -1,5 +1,5 @@
 package fileMonitor
 
 type Publisher interface {
-	Publish(result [][]byte, id []string) error
+	Publish(dir *Dir, result [][]byte, id []string) error
 }

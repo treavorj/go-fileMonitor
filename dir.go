@@ -205,7 +205,7 @@ func (d *Dir) processFiles(worker uint, fileInfo fs.DirEntry, dir string) (err e
 		fileLog.Trace().Dur("processingTime", time.Since(startTime)).Msg("successfully processed file. Publishing results")
 
 		for _, publisher := range d.Publishers {
-			err = publisher.Publish(results, id)
+			err = publisher.Publish(d, results, id)
 			if err != nil {
 				if err := inFile.Close(); err != nil {
 					fileLog.Error().Err(err).Msg("error closing inFile")

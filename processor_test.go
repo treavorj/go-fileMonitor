@@ -92,7 +92,7 @@ type testPublish struct {
 	publishSuccessful bool
 }
 
-func (p *testPublish) Publish(result [][]byte, id []string) error {
+func (p *testPublish) Publish(dir *Dir, result [][]byte, id []string) error {
 	p.publishSuccessful = true
 	return nil
 }
