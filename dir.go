@@ -44,7 +44,7 @@ type Dir struct {
 	MatchGroups      []MatchGroup
 
 	Processor  *Processor
-	Publishers []Publisher
+	Publishers []Publisher `json:"-"`
 	Copiers    []Copier
 
 	// Copier to use if an error occurs after a match as original file will be delete
