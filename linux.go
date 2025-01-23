@@ -1,12 +1,14 @@
 //go:build linux
 
-package fileMonitor
+package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -32,7 +34,15 @@ func getCreationTime(filePath string) (time.Time, error) {
 	return time.Unix(stat.Mtim.Unix()), nil // Used Mtim due to Ctim not being reliable
 }
 
-func MountRemoteSMB(username, password, server, shareName string) error {
+func SmbMount(username, password, server, shareName string) error {
+	if shareName == "" {
+		return fmt.Errorf("shareName cannot be blank")
+	} else if server == "" {
+		return fmt.Errorf("server cannot be blank")
+	} else if username == "" {
+		return fmt.Errorf("username cannot be blank")
+	}
+
 	credentialsFile, err := createCredentialsFile(username, password, server, shareName)
 	if err != nil {
 		return fmt.Errorf("unable to create credentials: %w", err)
@@ -93,6 +103,86 @@ func addFstabEntry(server, shareName, mountPoint, credentialsFile string) error 
 
 	if _, err = file.WriteString(entry); err != nil {
 		return fmt.Errorf("Failed to write to /etc/fstab: %w", err)
+	}
+
+	return nil
+}
+
+func SmbRemove(server, shareName string) error {
+	if shareName == "" {
+		return fmt.Errorf("shareName cannot be blank")
+	} else if server == "" {
+		return fmt.Errorf("server cannot be blank")
+	}
+
+	mountPoint := filepath.Join("/mnt", server, shareName)
+	credentialsFile := fmt.Sprintf("/etc/smbcredentials_%s_%s", server, shareName)
+
+	command := exec.Command("umount", mountPoint)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to unmount: %s, output: %s", err, string(output))
+	}
+
+	if err := os.Remove(credentialsFile); err != nil {
+		return fmt.Errorf("failed to remove credentials file: %w", err)
+	}
+
+	if err := removeFstabEntry(server, shareName); err != nil {
+		return fmt.Errorf("failed to remove fstab entry: %w", err)
+	}
+
+	if err := os.Remove(mountPoint); err != nil {
+		return fmt.Errorf("failed to remove mount point: %w", err)
+	}
+
+	return nil
+}
+
+func removeFstabEntry(server, shareName string) error {
+	fstabPath := "/etc/fstab"
+	tempPath := fstabPath + ".tmp"
+
+	input, err := os.Open(fstabPath)
+	if err != nil {
+		return fmt.Errorf("failed to open /etc/fstab: %w", err)
+	}
+
+	output, err := os.Create(tempPath)
+	if err != nil {
+		input.Close()
+		return fmt.Errorf("failed to create temporary fstab file: %w", err)
+	}
+
+	// Filter out the line corresponding to the share
+	scanner := bufio.NewScanner(input)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.Contains(line, fmt.Sprintf("//%s/%s", server, shareName)) {
+			continue
+		}
+		if _, err := output.WriteString(line + "\n"); err != nil {
+			input.Close()
+			output.Close()
+			return fmt.Errorf("failed to write to temporary fstab file: %w", err)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		input.Close()
+		output.Close()
+		return fmt.Errorf("error reading /etc/fstab: %w", err)
+	}
+
+	if err := input.Close(); err != nil {
+		return fmt.Errorf("failed to close %s: %w", fstabPath, err)
+	}
+	if err := output.Close(); err != nil {
+		return fmt.Errorf("failed to close %s: %w", tempPath, err)
+	}
+
+	if err := os.Rename(tempPath, fstabPath); err != nil {
+		return fmt.Errorf("failed to update /etc/fstab: %w", err)
 	}
 
 	return nil

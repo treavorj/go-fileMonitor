@@ -1,6 +1,6 @@
 //go:build windows
 
-package fileMonitor
+package main
 
 import (
 	"bytes"
@@ -39,13 +39,48 @@ func getCreationTime(filePath string) (time.Time, error) {
 	return time.Unix(0, cTime.Nanoseconds()), nil
 }
 
-func MountRemoteSMB(username, password, server, shareName string) error {
+func SmbMount(username, password, server, shareName string) error {
+	if shareName == "" {
+		return fmt.Errorf("shareName cannot be blank")
+	} else if server == "" {
+		return fmt.Errorf("server cannot be blank")
+	} else if username == "" {
+		return fmt.Errorf("username cannot be blank")
+	}
+
 	command := exec.Command(
 		"net",
 		"use", fmt.Sprintf(`\\%s\%s`, server, shareName),
-		fmt.Sprintf(`/user:"%s"`, username),
-		fmt.Sprintf(`"%s"`, password),
+		"/user:"+username,
+		password,
 		"/persistent:yes",
+	)
+
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
+
+	command.SysProcAttr = &syscall.SysProcAttr{
+		HideWindow: true,
+	}
+
+	if err := command.Run(); err != nil {
+		return fmt.Errorf("command failed: %s, stderr: %s", err, stderr.String())
+	}
+
+	return nil
+}
+
+func SmbRemove(server, shareName string) error {
+	if shareName == "" {
+		return fmt.Errorf("shareName cannot be blank")
+	} else if server == "" {
+		return fmt.Errorf("server cannot be blank")
+	}
+
+	command := exec.Command(
+		"net",
+		"use", fmt.Sprintf(`\\%s\%s`, server, shareName),
+		"/delete",
 	)
 
 	var stderr bytes.Buffer

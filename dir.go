@@ -1,4 +1,4 @@
-package fileMonitor
+package main
 
 import (
 	"context"
