@@ -223,14 +223,18 @@ Test3,3,3.3
 		t.Errorf("file should not exist but does")
 	}
 
-	_, err = os.Stat(filepath.Join(newTempFolder, folderName, fileName))
+	testFile, err := os.Stat(filepath.Join(newTempFolder, folderName, fileName))
 	if err != nil {
 		t.Errorf("file should exist")
 	}
 
-	_, err = os.Stat(fileNameExist)
+	shouldBeThere, err := os.Stat(fileNameExist)
 	if err != nil {
 		t.Errorf("file should exist and no error should occur: %v", err)
+	}
+
+	if testFile.Size() != shouldBeThere.Size() {
+		t.Errorf("testFile (%d) size does not equal shouldBeThere (%d) size", testFile.Size(), shouldBeThere.Size())
 	}
 
 	if !testPublishVar.publishSuccessful {

@@ -34,6 +34,11 @@ func (c *Copier) Copy(inFile *os.File, dir, monitorDir string) error {
 		return fmt.Errorf("error creating file: %w", err)
 	}
 
+	_, err = inFile.Seek(0, 0)
+	if err != nil {
+		return fmt.Errorf("error seeking file: %w", err)
+	}
+
 	_, err = io.Copy(outFile, inFile)
 	if err != nil {
 		return fmt.Errorf("failed to copy file: %w", err)
