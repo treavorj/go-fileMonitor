@@ -8,22 +8,11 @@ import (
 	"strings"
 )
 
-type Copier interface {
-	Copy(inFile *os.File, dir, monitorDir string) error
-	Type() CopierType
-}
-
-type CopierType uint
-
-const (
-	CopierTypeLocal CopierType = iota
-)
-
-type CopierLocal struct {
+type Copier struct {
 	Destination string
 }
 
-func (c *CopierLocal) Copy(inFile *os.File, dir, monitorDir string) error {
+func (c *Copier) Copy(inFile *os.File, dir, monitorDir string) error {
 	var outDir string
 
 	if string(monitorDir[0]) == "." {
@@ -62,8 +51,4 @@ func (c *CopierLocal) Copy(inFile *os.File, dir, monitorDir string) error {
 	}
 
 	return nil
-}
-
-func (c *CopierLocal) Type() CopierType {
-	return CopierTypeLocal
 }
