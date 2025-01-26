@@ -199,7 +199,7 @@ Test3,3,3.3
 	fileMonitor.AddAllDirPublisher(testPublishVar)
 
 	newTempFolder := t.TempDir()
-	dir.Copiers = append(dir.Copiers, Copier{
+	dir.Copiers = append(dir.Copiers, &LocalCopier{
 		Destination: newTempFolder,
 	})
 
@@ -314,7 +314,7 @@ Test3,3,3.3
 	}
 
 	newTempFolder := t.TempDir()
-	dir.ErrorCopiers = append(dir.Copiers, Copier{
+	dir.ErrorCopiers = append(dir.Copiers, &LocalCopier{
 		Destination: newTempFolder,
 	})
 

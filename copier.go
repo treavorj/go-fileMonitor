@@ -6,29 +6,53 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/jlaffaye/ftp"
 )
 
-type Copier struct {
-	Destination string
+type CopierType int
+
+const (
+	CopierTypeLocal = iota
+	CopierTypeFTP
+)
+
+type Copier interface {
+	Copy(inFile *os.File, dir, monitorDir string) error
+	Type() CopierType
 }
 
-func (c *Copier) Copy(inFile *os.File, dir, monitorDir string) error {
+func getOutFileName(dir, monitorDir, destination, inFileName string) (string, error) {
 	var outDir string
 
 	if string(monitorDir[0]) == "." {
 		outDir = dir[len(monitorDir)-2:]
+
 	} else {
 		outDir = dir[len(monitorDir):]
 	}
 
-	outDir = filepath.Join(c.Destination, outDir)
+	outDir = filepath.Join(destination, outDir)
 	err := os.MkdirAll(outDir, os.ModePerm)
 	if err != nil {
-		return fmt.Errorf("unable to create directory: %w", err)
+		return "", fmt.Errorf("unable to create directory: %w", err)
 	}
 
-	segments := strings.Split(inFile.Name(), string(os.PathSeparator))
-	outFile, err := os.Create(filepath.Join(outDir, segments[len(segments)-1]))
+	segments := strings.Split(inFileName, string(os.PathSeparator))
+	return filepath.Join(outDir, segments[len(segments)-1]), nil
+}
+
+type LocalCopier struct {
+	Destination string
+}
+
+func (c *LocalCopier) Copy(inFile *os.File, dir, monitorDir string) error {
+	outFileName, err := getOutFileName(dir, monitorDir, c.Destination, inFile.Name())
+	if err != nil {
+		return fmt.Errorf("error getting the output file name: %w", err)
+	}
+
+	outFile, err := os.Create(outFileName)
 	if err != nil {
 		outFile.Close()
 		return fmt.Errorf("error creating file: %w", err)
@@ -56,4 +80,48 @@ func (c *Copier) Copy(inFile *os.File, dir, monitorDir string) error {
 	}
 
 	return nil
+}
+
+func (c *LocalCopier) Type() CopierType {
+	return CopierTypeLocal
+}
+
+type FtpClient struct {
+	Server      string
+	Username    string
+	Password    string
+	Destination string
+}
+
+func (f *FtpClient) Copy(inFile *os.File, dir, monitorDir string) error {
+	outFileName, err := getOutFileName(dir, monitorDir, f.Destination, inFile.Name())
+	if err != nil {
+		return fmt.Errorf("error getting the output file name: %w", err)
+	}
+	conn, err := ftp.Dial(f.Server)
+	if err != nil {
+		return fmt.Errorf("failed to connect to FTP server: %w", err)
+	}
+	defer conn.Quit()
+
+	err = conn.Login(f.Username, f.Password)
+	if err != nil {
+		return fmt.Errorf("failed to log in to FTP server: %w", err)
+	}
+
+	_, err = inFile.Seek(0, 0)
+	if err != nil {
+		return fmt.Errorf("error seeking file: %w", err)
+	}
+
+	err = conn.Stor(outFileName, inFile)
+	if err != nil {
+		return fmt.Errorf("failed to upload file to FTP server: %w", err)
+	}
+
+	return nil
+}
+
+func (f *FtpClient) Type() CopierType {
+	return CopierTypeFTP
 }
