@@ -2,6 +2,7 @@ package fileMonitor
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -57,6 +58,43 @@ type Dir struct {
 	ctxCancel context.CancelFunc
 
 	parent *FileMonitor
+}
+
+func (d *Dir) UnmarshalJSON(input []byte) error {
+	type Alias Dir
+	aux := &struct {
+		*Alias
+
+		Copiers      []CopierAlias
+		ErrorCopiers []CopierAlias
+	}{
+		Alias: (*Alias)(d),
+	}
+
+	var err error
+	if err = json.Unmarshal(input, &aux); err != nil {
+		return err
+	}
+
+	copiers := make([]Copier, len(aux.Copiers))
+	for n := range aux.Copiers {
+		copiers[n], err = aux.Copiers[n].GetCopier()
+		if err != nil {
+			return fmt.Errorf("unable to get type for copier: %w", err)
+		}
+	}
+	d.Copiers = copiers
+
+	errCopiers := make([]Copier, len(aux.ErrorCopiers))
+	for n := range aux.Copiers {
+		errCopiers[n], err = aux.ErrorCopiers[n].GetCopier()
+		if err != nil {
+			return fmt.Errorf("unable to get type for copier: %w", err)
+		}
+	}
+	d.ErrorCopiers = errCopiers
+
+	return nil
 }
 
 func (d *Dir) Monitor() error {

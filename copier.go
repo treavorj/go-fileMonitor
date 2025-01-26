@@ -1,6 +1,7 @@
 package fileMonitor
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -20,6 +21,26 @@ const (
 type Copier interface {
 	Copy(inFile *os.File, dir, monitorDir string) error
 	Type() CopierType
+}
+
+type CopierAlias struct {
+	Type    CopierType
+	Details json.RawMessage
+}
+
+func (c *CopierAlias) GetCopier() (Copier, error) {
+	switch c.Type {
+	case CopierTypeLocal:
+		copier := &LocalCopier{}
+		err := json.Unmarshal(c.Details, copier)
+		return copier, err
+	case CopierTypeFTP:
+		copier := &FtpCopier{}
+		err := json.Unmarshal(c.Details, copier)
+		return copier, err
+	default:
+		return nil, fmt.Errorf("invalid type: %d", c.Type)
+	}
 }
 
 func getOutFileName(dir, monitorDir, destination, inFileName string) (string, error) {
@@ -86,14 +107,14 @@ func (c *LocalCopier) Type() CopierType {
 	return CopierTypeLocal
 }
 
-type FtpClient struct {
+type FtpCopier struct {
 	Server      string
 	Username    string
 	Password    string
 	Destination string
 }
 
-func (f *FtpClient) Copy(inFile *os.File, dir, monitorDir string) error {
+func (f *FtpCopier) Copy(inFile *os.File, dir, monitorDir string) error {
 	outFileName, err := getOutFileName(dir, monitorDir, f.Destination, inFile.Name())
 	if err != nil {
 		return fmt.Errorf("error getting the output file name: %w", err)
@@ -122,6 +143,6 @@ func (f *FtpClient) Copy(inFile *os.File, dir, monitorDir string) error {
 	return nil
 }
 
-func (f *FtpClient) Type() CopierType {
+func (f *FtpCopier) Type() CopierType {
 	return CopierTypeFTP
 }
