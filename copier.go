@@ -154,11 +154,18 @@ func (c *CopierLocal) MarshalJSON() ([]byte, error) {
 type CopierFtp struct {
 	Server      string
 	Username    string
-	Password    string
+	Password    string // Does not store the password directly and only stores encrypted using the encryptionFunc
 	Destination string
+
+	EncryptionFunc func(string) (string, error) `json:"-"` // Not stored in JSON
+	DecryptionFunc func(string) (string, error) `json:"-"` // Not stored in JSON
 }
 
 func (c *CopierFtp) Copy(inFile *os.File, dir, monitorDir string) error {
+	if c.EncryptionFunc == nil || c.DecryptionFunc == nil {
+		return fmt.Errorf("must supply both an encryption and decryption function")
+	}
+
 	outFileName, err := getOutFileName(dir, monitorDir, c.Destination, inFile.Name())
 	if err != nil {
 		return fmt.Errorf("error getting the output file name: %w", err)
