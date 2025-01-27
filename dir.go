@@ -86,10 +86,10 @@ func (d *Dir) UnmarshalJSON(input []byte) error {
 	d.Copiers = copiers
 
 	errCopiers := make([]Copier, len(aux.ErrorCopiers))
-	for n := range aux.Copiers {
+	for n := range aux.ErrorCopiers {
 		errCopiers[n], err = aux.ErrorCopiers[n].GetCopier()
 		if err != nil {
-			return fmt.Errorf("unable to get type for copier: %w", err)
+			return fmt.Errorf("unable to get type for error copier: %w", err)
 		}
 	}
 	d.ErrorCopiers = errCopiers

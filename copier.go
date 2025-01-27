@@ -14,13 +14,15 @@ import (
 type CopierType int
 
 const (
-	CopierTypeLocal = iota
+	CopierTypeNull = iota
+	CopierTypeLocal
 	CopierTypeFTP
 )
 
 type Copier interface {
 	Copy(inFile *os.File, dir, monitorDir string) error
-	Type() CopierType
+	GetType() CopierType
+	MarshalJSON() ([]byte, error) // Must inject type into object
 }
 
 type CopierAlias struct {
@@ -28,14 +30,45 @@ type CopierAlias struct {
 	Details json.RawMessage
 }
 
+func (c *CopierAlias) UnmarshalJSON(data []byte) error {
+	// Create a temporary map to hold the JSON key-value pairs
+	var tempMap map[string]json.RawMessage
+	if err := json.Unmarshal(data, &tempMap); err != nil {
+		return err
+	}
+
+	// Extract the Type field
+	typeField, ok := tempMap["Type"]
+	if !ok {
+		return fmt.Errorf("missing Type field in Copier")
+	}
+	if err := json.Unmarshal(typeField, &c.Type); err != nil {
+		return fmt.Errorf("invalid Type field: %w", err)
+	}
+
+	// Remove the Type field from the map to get the Details
+	delete(tempMap, "Type")
+
+	// Marshal the remaining fields back into JSON and assign to Details
+	detailsData, err := json.Marshal(tempMap)
+	if err != nil {
+		return fmt.Errorf("failed to marshal Details: %w", err)
+	}
+	c.Details = json.RawMessage(detailsData)
+
+	return nil
+}
+
 func (c *CopierAlias) GetCopier() (Copier, error) {
 	switch c.Type {
+	case CopierTypeNull:
+		return nil, fmt.Errorf("no type provided")
 	case CopierTypeLocal:
-		copier := &LocalCopier{}
+		copier := &CopierLocal{}
 		err := json.Unmarshal(c.Details, copier)
 		return copier, err
 	case CopierTypeFTP:
-		copier := &FtpCopier{}
+		copier := &CopierFtp{}
 		err := json.Unmarshal(c.Details, copier)
 		return copier, err
 	default:
@@ -63,11 +96,11 @@ func getOutFileName(dir, monitorDir, destination, inFileName string) (string, er
 	return filepath.Join(outDir, segments[len(segments)-1]), nil
 }
 
-type LocalCopier struct {
+type CopierLocal struct {
 	Destination string
 }
 
-func (c *LocalCopier) Copy(inFile *os.File, dir, monitorDir string) error {
+func (c *CopierLocal) Copy(inFile *os.File, dir, monitorDir string) error {
 	outFileName, err := getOutFileName(dir, monitorDir, c.Destination, inFile.Name())
 	if err != nil {
 		return fmt.Errorf("error getting the output file name: %w", err)
@@ -103,29 +136,40 @@ func (c *LocalCopier) Copy(inFile *os.File, dir, monitorDir string) error {
 	return nil
 }
 
-func (c *LocalCopier) Type() CopierType {
+func (c *CopierLocal) GetType() CopierType {
 	return CopierTypeLocal
 }
 
-type FtpCopier struct {
+func (c *CopierLocal) MarshalJSON() ([]byte, error) {
+	type Alias CopierLocal
+	return json.Marshal(&struct {
+		Type CopierType `json:"Type"`
+		*Alias
+	}{
+		Type:  c.GetType(),
+		Alias: (*Alias)(c),
+	})
+}
+
+type CopierFtp struct {
 	Server      string
 	Username    string
 	Password    string
 	Destination string
 }
 
-func (f *FtpCopier) Copy(inFile *os.File, dir, monitorDir string) error {
-	outFileName, err := getOutFileName(dir, monitorDir, f.Destination, inFile.Name())
+func (c *CopierFtp) Copy(inFile *os.File, dir, monitorDir string) error {
+	outFileName, err := getOutFileName(dir, monitorDir, c.Destination, inFile.Name())
 	if err != nil {
 		return fmt.Errorf("error getting the output file name: %w", err)
 	}
-	conn, err := ftp.Dial(f.Server)
+	conn, err := ftp.Dial(c.Server)
 	if err != nil {
 		return fmt.Errorf("failed to connect to FTP server: %w", err)
 	}
 	defer conn.Quit()
 
-	err = conn.Login(f.Username, f.Password)
+	err = conn.Login(c.Username, c.Password)
 	if err != nil {
 		return fmt.Errorf("failed to log in to FTP server: %w", err)
 	}
@@ -143,6 +187,17 @@ func (f *FtpCopier) Copy(inFile *os.File, dir, monitorDir string) error {
 	return nil
 }
 
-func (f *FtpCopier) Type() CopierType {
+func (c *CopierFtp) GetType() CopierType {
 	return CopierTypeFTP
+}
+
+func (f *CopierFtp) MarshalJSON() ([]byte, error) {
+	type Alias CopierFtp
+	return json.Marshal(&struct {
+		Type CopierType `json:"Type"`
+		*Alias
+	}{
+		Type:  f.GetType(),
+		Alias: (*Alias)(f),
+	})
 }

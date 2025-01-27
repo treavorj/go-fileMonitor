@@ -57,14 +57,23 @@ func TestFileMonitorLoading(t *testing.T) {
 		t.Fatalf("fileMonitor1 is nil")
 	}
 
-	_, err = fileMonitor1.NewDir(t.Name(), "testFolder", "publishLocation", time.Minute, &Processor{Type: ProcessorTypeCsv, Executor: csvConfig}, true, []MatchGroup{{Expression: "test"}})
+	dir, err := fileMonitor1.NewDir(t.Name(), "testFolder", "publishLocation", time.Minute, &Processor{Type: ProcessorTypeCsv, Executor: csvConfig}, true, []MatchGroup{{Expression: "test"}})
 	if err != nil {
-		t.Errorf("error creating dir in localHost: %v", err)
+		t.Fatalf("error creating dir in localHost: %v", err)
+	}
+
+	dir.Copiers = append(dir.Copiers, &CopierLocal{
+		Destination: "testDest",
+	})
+
+	err = fileMonitor1.Update()
+	if err != nil {
+		t.Fatalf("error updating fileMonitor: %v", err)
 	}
 
 	fileMonitor2, err := NewFileMonitor(context.Background(), logger, configFile.Name())
 	if err != nil {
-		t.Logf("failed to create fileMonitor2: %v", err)
+		t.Fatalf("failed to create fileMonitor2: %v", err)
 	} else if fileMonitor2 == nil {
 		t.Fatalf("fileMonitor2 is nil")
 	}
@@ -199,7 +208,7 @@ Test3,3,3.3
 	fileMonitor.AddAllDirPublisher(testPublishVar)
 
 	newTempFolder := t.TempDir()
-	dir.Copiers = append(dir.Copiers, &LocalCopier{
+	dir.Copiers = append(dir.Copiers, &CopierLocal{
 		Destination: newTempFolder,
 	})
 
@@ -314,7 +323,7 @@ Test3,3,3.3
 	}
 
 	newTempFolder := t.TempDir()
-	dir.ErrorCopiers = append(dir.Copiers, &LocalCopier{
+	dir.ErrorCopiers = append(dir.Copiers, &CopierLocal{
 		Destination: newTempFolder,
 	})
 
