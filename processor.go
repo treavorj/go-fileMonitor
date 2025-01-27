@@ -40,11 +40,14 @@ type ProcessorExecutor interface {
 type ProcessorType int
 
 const (
-	ProcessorTypeCsv ProcessorType = iota
+	ProcessorTypeNull ProcessorType = iota
+	ProcessorTypeCsv
 )
 
 func (p ProcessorType) unmarshalType(data []byte) (ProcessorExecutor, error) {
 	switch p {
+	case ProcessorTypeNull:
+		return nil, fmt.Errorf("no processor supplied")
 	case ProcessorTypeCsv:
 		processor := &csvParse.Csv{}
 		return processor, json.Unmarshal(data, processor)
