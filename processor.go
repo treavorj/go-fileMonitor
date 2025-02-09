@@ -47,7 +47,7 @@ const (
 func (p ProcessorType) unmarshalType(data []byte) (ProcessorExecutor, error) {
 	switch p {
 	case ProcessorTypeNull:
-		return nil, fmt.Errorf("no processor supplied")
+		return nil, nil
 	case ProcessorTypeCsv:
 		processor := &csvParse.Csv{}
 		return processor, json.Unmarshal(data, processor)
