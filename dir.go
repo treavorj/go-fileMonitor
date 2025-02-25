@@ -24,7 +24,7 @@ type MatchGroup struct {
 	compiled *regexp.Regexp
 }
 
-func (m *MatchGroup) Match(dir, fileName string) (match bool, err error) {
+func (m *MatchGroup) Match(filePath string) (match bool, err error) {
 	if m.compiled == nil {
 		m.compiled, err = regexp.Compile(m.Expression)
 		if err != nil {
@@ -32,7 +32,7 @@ func (m *MatchGroup) Match(dir, fileName string) (match bool, err error) {
 		}
 	}
 
-	name := strings.ReplaceAll(filepath.Join(dir, fileName), string(filepath.Separator), "/")
+	name := strings.ReplaceAll(filePath, string(filepath.Separator), "/")
 	return m.compiled.MatchString(name) != m.Exclude, nil
 }
 
@@ -166,55 +166,31 @@ func (d *Dir) readDir(dir string, root bool) error {
 	return nil
 }
 
-func (d *Dir) processFiles(worker uint, fileInfo fs.DirEntry, dir string) (err error) {
+func (d *Dir) processFiles(worker uint, fileInfo fs.DirEntry, dir string) {
 	startTime := time.Now()
 	fileLog := d.log.With().Uint("worker", worker).Str("filename", fileInfo.Name()).Str("dir", dir).Logger()
+	inFilePath := filepath.Join(dir, fileInfo.Name())
 
 	for _, matchGroup := range d.MatchGroups {
-		match, err := matchGroup.Match(dir, fileInfo.Name())
+		match, err := matchGroup.Match(inFilePath)
 		if err != nil {
 			fileLog.Warn().Err(err).Msg("error matching file")
-			return fmt.Errorf("error matching file: %w", err)
+			return
 		}
 		if !match {
-			return nil
+			return
 		}
 	}
 
-	inFilePath := filepath.Join(dir, fileInfo.Name())
-	inFile, err := os.Open(inFilePath)
+	fileStats, err := os.Stat(inFilePath)
 	if err != nil {
-		msg := "failed to open file"
-		fileLog.Error().Err(err).Msg(msg)
-		return fmt.Errorf("%s:%w", msg, err)
-	}
+		fileLog.Error().Err(err).Msg("Error getting file stats")
 
-	defer func() {
-		err = os.Remove(filepath.Join(dir, fileInfo.Name()))
+		err = d.processError(inFilePath, d.MonitorFolder)
 		if err != nil {
-			msg := "failed to delete file"
-			err1 := d.processError(inFile, dir, d.MonitorFolder)
-			if err1 != nil {
-				fileLog.Error().Err(err).Str("processError", err1.Error()).TimeDiff("processingTime", time.Now(), startTime).Msg(msg)
-			} else {
-				fileLog.Error().Err(err).TimeDiff("processingTime", time.Now(), startTime).Msg(msg)
-			}
+			fileLog.Error().Err(err).Msg("error occurred while processing the error copier")
 		}
-	}()
-
-	fileStats, err := inFile.Stat()
-	if err != nil {
-		msg := "Error getting file stats"
-		err1 := d.processError(inFile, dir, d.MonitorFolder)
-		if err1 != nil {
-			fileLog.Error().Err(err).Str("processError", err1.Error()).Msg(msg)
-		} else {
-			fileLog.Error().Err(err).Msg(msg)
-		}
-		if err := inFile.Close(); err != nil {
-			fileLog.Error().Err(err).Msg("error closing inFile")
-		}
-		return fmt.Errorf("%s:%w", msg, err)
+		return
 	}
 	d.Stats.Inc(uint64(fileStats.Size()))
 	fileLog.Trace().
@@ -224,65 +200,70 @@ func (d *Dir) processFiles(worker uint, fileInfo fs.DirEntry, dir string) (err e
 		Time("lastWriteTime", fileStats.ModTime()).
 		Msg("fileStats")
 
+	defer func() {
+		err = os.Remove(inFilePath)
+		if err != nil {
+			fileLog.Error().Err(err).TimeDiff("processingTime", time.Now(), startTime).Msg("failed to delete file")
+
+			err = d.processError(inFilePath, d.MonitorFolder)
+			if err != nil {
+				fileLog.Error().Err(err).TimeDiff("processingTime", time.Now(), startTime).Msg("error while processing the error copier")
+			}
+		}
+	}()
+
 	if d.Processor != nil {
 		fileLog.Trace().Msg("processing file")
-		results, id, err := d.Processor.Executor.Process(inFile, dir)
+		results, id, err := d.Processor.Executor.Process(inFilePath)
 		if err != nil {
-			msg := "error when processing file"
-			err1 := d.processError(inFile, dir, d.MonitorFolder)
-			if err1 != nil {
-				fileLog.Error().Err(err).Str("processError", err1.Error()).TimeDiff("processingTime", time.Now(), startTime).Msg(msg)
-			} else {
-				fileLog.Error().Err(err).TimeDiff("processingTime", time.Now(), startTime).Msg(msg)
+			fileLog.Warn().Err(err).TimeDiff("processingTime", time.Now(), startTime).Msg("error when processing the file")
+
+			err := d.processError(inFilePath, d.MonitorFolder)
+			if err != nil {
+				fileLog.Error().Err(err).TimeDiff("processingTime", time.Now(), startTime).Msg("error while processing the error copier")
 			}
-			if err := inFile.Close(); err != nil {
-				fileLog.Error().Err(err).Msg("error closing inFile")
-			}
-			return fmt.Errorf("%s:%w", msg, err)
+
+			return
 		}
 		fileLog.Trace().Dur("processingTime", time.Since(startTime)).Msg("successfully processed file. Publishing results")
 
 		for _, publisher := range d.Publishers {
 			err = publisher.Publish(d, results, id)
 			if err != nil {
-				if err := inFile.Close(); err != nil {
-					fileLog.Error().Err(err).Msg("error closing inFile")
-				}
-				return fmt.Errorf("error publishing result: %w", err)
+				fileLog.Warn().Err(err).TimeDiff("processingTime", time.Now(), startTime).Msg("error while publishing the results")
+				return
+			}
+
+			err := d.processError(inFilePath, d.MonitorFolder)
+			if err != nil {
+				fileLog.Error().Err(err).TimeDiff("processingTime", time.Now(), startTime).Msg("error while processing the error copier")
 			}
 		}
 		fileLog.Trace().Dur("processingTime", time.Since(startTime)).Msg("successfully published results")
 	}
 
 	for _, copier := range d.Copiers {
-		err = copier.Copy(inFile, dir, d.MonitorFolder)
+		err = copier.Copy(inFilePath, d.MonitorFolder)
 		if err != nil {
-			msg := "error copying file"
-			err1 := d.processError(inFile, dir, d.MonitorFolder)
-			if err1 != nil {
-				fileLog.Error().Err(err).Str("processError", err1.Error()).TimeDiff("processingTime", time.Now(), startTime).Msg(msg)
-			} else {
-				fileLog.Error().Err(err).TimeDiff("processingTime", time.Now(), startTime).Msg(msg)
+			fileLog.Error().Err(err).TimeDiff("processingTime", time.Now(), startTime).Msg("error copying the file")
+
+			err := d.processError(inFilePath, d.MonitorFolder)
+			if err != nil {
+				fileLog.Error().Err(err).TimeDiff("processingTime", time.Now(), startTime).Msg("error while processing the error copier")
 			}
-			if err := inFile.Close(); err != nil {
-				fileLog.Error().Err(err).Msg("error closing inFile")
-			}
-			return fmt.Errorf("%s: %w", msg, err)
+
+			return
 		}
-	}
-	if err := inFile.Close(); err != nil {
-		fileLog.Error().Err(err).Msg("error closing inFile")
 	}
 
 	fileLog.Trace().Dur("processingTime", time.Since(startTime)).Msg("successfully processed entire file")
-	return nil
 }
 
-func (d *Dir) processError(inFile *os.File, dir, monitorFolder string) error {
+func (d *Dir) processError(inFilePath, monitorFolder string) error {
 	var errs []error
 
 	for _, copier := range d.ErrorCopiers {
-		err := copier.Copy(inFile, dir, monitorFolder)
+		err := copier.Copy(inFilePath, monitorFolder)
 		if err != nil {
 			errs = append(errs, err)
 		}

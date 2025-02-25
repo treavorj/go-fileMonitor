@@ -3,7 +3,6 @@ package fileMonitor
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 
 	"github.com/treavorj/go-csvParse"
 )
@@ -34,7 +33,7 @@ func (p *Processor) UnmarshalJSON(data []byte) error {
 }
 
 type ProcessorExecutor interface {
-	Process(file *os.File, filepath string) (result [][]byte, id []string, err error)
+	Process(filepath string) (result [][]byte, id []string, err error)
 }
 
 type ProcessorType int

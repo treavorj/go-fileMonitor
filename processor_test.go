@@ -170,7 +170,7 @@ Test3,3,3.3
 				ParseAsArray:    true,
 			},
 		},
-		TimeField: csvParse.TimeField{Layout: time.RFC3339, Cells: []csvParse.Cell{{Row: 6, Column: 1}}},
+		TimeFields: []csvParse.TimeField{{Layout: time.RFC3339, Cells: []csvParse.Cell{{Row: 6, Column: 1}}}},
 	}
 
 	// setup file monitor

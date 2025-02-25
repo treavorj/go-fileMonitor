@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/jlaffaye/ftp"
 )
@@ -20,7 +19,7 @@ const (
 )
 
 type Copier interface {
-	Copy(inFile *os.File, dir, monitorDir string) error
+	Copy(dir, monitorDir string) error
 	GetType() CopierType
 	MarshalJSON() ([]byte, error) // Must inject type into object
 }
@@ -76,34 +75,24 @@ func (c *CopierAlias) GetCopier() (Copier, error) {
 	}
 }
 
-func getOutFileName(dir, monitorDir, destination, inFileName string) (string, error) {
-	var outDir string
-
-	if string(monitorDir[0]) == "." {
-		outDir = dir[len(monitorDir)-2:]
-
-	} else {
-		outDir = dir[len(monitorDir):]
+func getOutFileName(inFilePath, monitorDir, destination string) string {
+	if monitorDir[0:1] == "." {
+		return filepath.Join(destination, inFilePath[len(monitorDir)-2:])
 	}
 
-	outDir = filepath.Join(destination, outDir)
-	err := os.MkdirAll(outDir, os.ModePerm)
-	if err != nil {
-		return "", fmt.Errorf("unable to create directory: %w", err)
-	}
-
-	segments := strings.Split(inFileName, string(os.PathSeparator))
-	return filepath.Join(outDir, segments[len(segments)-1]), nil
+	return filepath.Join(destination, inFilePath[len(monitorDir):])
 }
 
 type CopierLocal struct {
 	Destination string
 }
 
-func (c *CopierLocal) Copy(inFile *os.File, dir, monitorDir string) error {
-	outFileName, err := getOutFileName(dir, monitorDir, c.Destination, inFile.Name())
+func (c *CopierLocal) Copy(filePath, monitorDir string) error {
+	outFileName := getOutFileName(filePath, monitorDir, c.Destination)
+
+	err := os.MkdirAll(filepath.Dir(outFileName), os.ModePerm)
 	if err != nil {
-		return fmt.Errorf("error getting the output file name: %w", err)
+		return fmt.Errorf("unable to create directory: %w", err)
 	}
 
 	outFile, err := os.Create(outFileName)
@@ -112,14 +101,20 @@ func (c *CopierLocal) Copy(inFile *os.File, dir, monitorDir string) error {
 		return fmt.Errorf("error creating file: %w", err)
 	}
 
-	_, err = inFile.Seek(0, 0)
+	inFile, err := os.Open(filePath)
 	if err != nil {
-		return fmt.Errorf("error seeking file: %w", err)
+		return fmt.Errorf("error opening file: %w", err)
 	}
 
 	_, err = io.Copy(outFile, inFile)
 	if err != nil {
+		inFile.Close()
 		return fmt.Errorf("failed to copy file: %w", err)
+	}
+
+	err = inFile.Close()
+	if err != nil {
+		return fmt.Errorf("error closing inFile: %w", err)
 	}
 
 	err = outFile.Close()
@@ -161,15 +156,11 @@ type CopierFtp struct {
 	DecryptionFunc func(string) (string, error) `json:"-"` // Not stored in JSON
 }
 
-func (c *CopierFtp) Copy(inFile *os.File, dir, monitorDir string) error {
+func (c *CopierFtp) Copy(inFilePath, monitorDir string) error {
 	if c.EncryptionFunc == nil || c.DecryptionFunc == nil {
 		return fmt.Errorf("must supply both an encryption and decryption function")
 	}
 
-	outFileName, err := getOutFileName(dir, monitorDir, c.Destination, inFile.Name())
-	if err != nil {
-		return fmt.Errorf("error getting the output file name: %w", err)
-	}
 	conn, err := ftp.Dial(c.Server)
 	if err != nil {
 		return fmt.Errorf("failed to connect to FTP server: %w", err)
@@ -181,11 +172,13 @@ func (c *CopierFtp) Copy(inFile *os.File, dir, monitorDir string) error {
 		return fmt.Errorf("failed to log in to FTP server: %w", err)
 	}
 
-	_, err = inFile.Seek(0, 0)
+	inFile, err := os.Open(inFilePath)
 	if err != nil {
-		return fmt.Errorf("error seeking file: %w", err)
+		return fmt.Errorf("failed to open the file: %w", err)
 	}
+	defer inFile.Close()
 
+	outFileName := getOutFileName(inFilePath, monitorDir, c.Destination)
 	err = conn.Stor(outFileName, inFile)
 	if err != nil {
 		return fmt.Errorf("failed to upload file to FTP server: %w", err)
